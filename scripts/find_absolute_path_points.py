@@ -5,9 +5,6 @@ from lxml import etree
 import sys
 from decimal import Decimal
 
-global_segments = set()
-global_segments_by_start_point = {}
-
 def _verify_segments(list_of_segments):
     for x in list_of_segments:
         assert(len(x) == 2) ## one move and one curve
@@ -165,23 +162,7 @@ def _printable_segments(segments):
 def _printable_segments2(set_of_independent_segments):
     return " ".join([_printable_segments(segments) for segments in set_of_independent_segments])
 
-if __name__ == '__main__':
-    import pdb; pdb.set_trace
-    with open(sys.argv[1], 'br') as f:
-        continent = etree.XML(f.read())
-    g = continent.find('{http://www.w3.org/2000/svg}g')
-    for path in g.findall('{http://www.w3.org/2000/svg}path'):
-        global_segments.update(set(find_absolute_path_segments(path.get('d'))))
-        g.remove(path)
-
-    for segment in global_segments:
-        start_point = segment[0][1]
-        assert(len(start_point) == 1)
-        start_point = start_point[0]
-        if not start_point in global_segments_by_start_point:
-            global_segments_by_start_point[start_point] = []
-        global_segments_by_start_point[start_point].append(segment)
-
+def cut_paths(g, global_segments_by_start_point):
     prev_point = (0,0)
     start_point = (0,0)
     paths = []
@@ -205,6 +186,29 @@ if __name__ == '__main__':
         _assert(len(path)>0)
         print(len(global_segments_by_start_point))
         paths.append(path)
+    return paths
+    
+
+if __name__ == '__main__':
+    global_segments = set()
+    global_segments_by_start_point = {}
+
+    with open(sys.argv[1], 'br') as f:
+        continent = etree.XML(f.read())
+    g = continent.find('{http://www.w3.org/2000/svg}g')
+    for path in g.findall('{http://www.w3.org/2000/svg}path'):
+        global_segments.update(set(find_absolute_path_segments(path.get('d'))))
+        g.remove(path)
+
+    for segment in global_segments:
+        start_point = segment[0][1]
+        assert(len(start_point) == 1)
+        start_point = start_point[0]
+        if not start_point in global_segments_by_start_point:
+            global_segments_by_start_point[start_point] = []
+        global_segments_by_start_point[start_point].append(segment)
+
+    paths = cut_paths(g, global_segments_by_start_point)
 
     i=0
     for path in paths:
