@@ -25,8 +25,8 @@
      inkscape:document-units="mm"
      showgrid="false"
      inkscape:zoom="1.8173401"
-     inkscape:cx="178.83279"
-     inkscape:cy="44.295506"
+     inkscape:cx="1277.1412"
+     inkscape:cy="842.16488"
      inkscape:window-width="1916"
      inkscape:window-height="1030"
      inkscape:window-x="0"
@@ -60,24 +60,6 @@
          id="tspan11983"
          x="-107.05922"
          y="180.12885">Atlanterhavet</tspan></text>
-    <text
-       xml:space="preserve"
-       style="font-size:16px;line-height:1.25;font-family:sans-serif;letter-spacing:0px"
-       x="283.49896"
-       y="217.58774"
-       id="text24991"><tspan
-         sodipodi:role="line"
-         id="tspan24989"
-         x="283.49896"
-         y="223.43149">Det</tspan><tspan
-         sodipodi:role="line"
-         x="283.49896"
-         y="263.43149"
-         id="tspan25125">  Indiske</tspan><tspan
-         sodipodi:role="line"
-         x="283.49896"
-         y="283.43149"
-         id="tspan25127">    hav</tspan></text>
     <text
        xml:space="preserve"
        style="font-size:16px;line-height:1.25;font-family:sans-serif;letter-spacing:0px"
@@ -221,5 +203,38 @@
          x="3.1119485"
          y="10.008383"
          id="tspan13652">jul 2021</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:15.875px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;stroke-width:0.264583"
+       x="283.4364"
+       y="217.40475"
+       id="text20687"><tspan
+         sodipodi:role="line"
+         id="tspan20685"
+         style="font-size:15.875px;stroke-width:0.264583"
+         x="283.4364"
+         y="217.40475">Det</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:15.875px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;stroke-width:0.264583"
+       x="292.108"
+       y="229.50279"
+       id="text34643"><tspan
+         sodipodi:role="line"
+         id="tspan34641"
+         style="font-size:15.875px;stroke-width:0.264583"
+         x="292.108"
+         y="229.50279">indiske</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:15.875px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;stroke-width:0.264583"
+       x="302.23779"
+       y="244.22937"
+       id="text39577"><tspan
+         sodipodi:role="line"
+         id="tspan39575"
+         style="font-size:15.875px;stroke-width:0.264583"
+         x="302.23779"
+         y="244.22937">hav</tspan></text>
   </g>
 </svg>
