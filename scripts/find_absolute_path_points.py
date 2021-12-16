@@ -166,6 +166,7 @@ def cut_paths(g, global_segments_by_start_point):
     prev_point = (0,0)
     start_point = (0,0)
     paths = []
+    points_visited = set()
     while global_segments_by_start_point:
         distance_square=1<<31
         for start_point_ in global_segments_by_start_point:
@@ -179,15 +180,21 @@ def cut_paths(g, global_segments_by_start_point):
         assert(start_point in global_segments_by_start_point)
         path = []
         while start_point in global_segments_by_start_point:
-            path.append(global_segments_by_start_point[start_point].pop())
+            next_segment = global_segments_by_start_point[start_point].pop()
             if not global_segments_by_start_point[start_point]:
                 global_segments_by_start_point.pop(start_point)
-            start_point = path[-1][-1][-1][-1]
+            prev_start_point = start_point
+            start_point = next_segment[-1][-1][-1]
+            if prev_start_point in points_visited and start_point in points_visited:
+                break
+            path.append(next_segment)
+            if start_point in points_visited:
+                break
+            points_visited.add(start_point)
         _assert(len(path)>0)
         print(len(global_segments_by_start_point))
         paths.append(path)
     return paths
-    
 
 if __name__ == '__main__':
     global_segments = set()
