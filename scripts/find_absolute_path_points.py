@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+SQTHRESH=0.001
+
 import re
 from lxml import etree
 import sys
@@ -67,6 +69,7 @@ def _d_cmd_points(d_string):
         else:
             points.append(_text2tuple(pointmatch.group(1)))
         d_string = pointmatch.group(2)
+    points = [point for point in points]
     return(command, points, d_string)
 
 def find_absolute_path_segments(d_string):
@@ -170,23 +173,23 @@ def _printable_segments(segments):
 def _printable_segments2(set_of_independent_segments):
     return " ".join([_printable_segments(segments) for segments in set_of_independent_segments])
 
-def find_a_start_point(global_segments_by_start_point):
-    for x in global_segments_by_start_point:
-        if len(global_segments_by_start_point[x])>1:
+def find_a_start_point(segments_by_start_point):
+    for x in segments_by_start_point:
+        if len(segments_by_start_point[x])>1:
             return x
     return x
 
-def cut_paths(global_segments_by_start_point, junctions):
+def cut_paths(segments_by_start_point, junctions):
     prev_point = None
     start_point = None
     paths = []
     points_visited = set()
-    while global_segments_by_start_point:
+    while segments_by_start_point:
         if prev_point is None:
-            start_point = find_a_start_point(global_segments_by_start_point)
+            start_point = find_a_start_point(segments_by_start_point)
         else:
             distance_square=1<<31
-            for start_point_ in global_segments_by_start_point:
+            for start_point_ in segments_by_start_point:
                 distance_square_ = 0
                 for x in zip(start_point_, prev_point):
                     distance_square_ += (x[0]-x[1])**2
@@ -194,69 +197,242 @@ def cut_paths(global_segments_by_start_point, junctions):
                     distance_square = distance_square_
                     start_point = start_point_
         assert(start_point is not None)
-        assert(start_point in global_segments_by_start_point)
+        assert(start_point in segments_by_start_point)
         path = []
-        while start_point in global_segments_by_start_point:
-            if start_point in junctions:
+        while start_point in segments_by_start_point:
+            if not segments_by_start_point[start_point]:
+                segments_by_start_point.pop(start_point)
+                break
+            if start_point in junctions and len(path)>0:
                 paths.append(path)
                 path = []
-            next_segment = global_segments_by_start_point[rounded(start_point)].pop()
-            if not global_segments_by_start_point[rounded(start_point)]:
-                global_segments_by_start_point.pop(rounded(start_point))
+            next_segment = segments_by_start_point[start_point].pop()
+            if not segments_by_start_point[start_point]:
+                segments_by_start_point.pop(start_point)
             prev_start_point = start_point
-            start_point = rounded(next_segment[-1][-1][-1])
+            start_point = next_segment[-1][-1][-1]
             path.append(next_segment)
             points_visited.add(start_point)
-        print(len(global_segments_by_start_point))
+        print(len(segments_by_start_point))
         if len(path)>0:
             paths.append(path)
         else:
             print(f"something muffens at {start_point}")
     return paths
 
+## not in use anymore
 def rounded(point, num_decimals=3):
     return (round(point[0], num_decimals), round(point[1], num_decimals))
 
-if __name__ == '__main__':
-    global_segments = set()
-    global_segments_by_start_point = defaultdict(list)
-    global_segments_by_point = defaultdict(list)
-    junctions = set()
+def sqdist(a, b):
+    return (a[0]-b[0])**2+(a[1]-b[1])**2
 
-    with open(sys.argv[1], 'br') as f:
-        continent = etree.XML(f.read())
+def path_points(path):
+    return [x[0][1][0] for x in path] + [ path[-1][-1][-1][-1] ]
+
+def path_conflicts(a, b, sqthreshold=SQTHRESH):
+    """The original data contains duplicated paths.  A lot of effort has
+    been put into removing true duplicates, this method attempts to
+    remove parts of paths containing almost overlapping lines.  (Two
+    paths also should not cross each other (this is not tested for
+    currently).
+
+    Algorithm:
+    * Find a common junction point 
+    * if none exist, assume the paths aren't overlapping - this may not always be true though
+    * sort the points in the paths by distance to the common junction point
+    * go through the sorted points and check the distance between them
+    * if several successive points are too close to each other,  consider the points from the b-path broken and add them to a blacklist
+    * return blacklist
+    * if paths diverge, we need to anchor the non-blacklisted parts of path b in a new junction point on path a
+    * we need to eliminate the offending segments from the segment list, add a new anchor segment, and rerun quite some of the logic (on the outside of this function)
+    """
+    points = [path_points(x) for x in (a,b)]
+    start = None
+
+    ## find a common junction, if any
+    for combo in ((0,0), (0,-1), (-1,-1), (-1,0)):
+        if points[0][combo[0]] == points[1][combo[1]]:
+            start = points[0][combo[0]]
+            break
+    if not start:
+        return (None, None)
+
+    for p in points:
+        p.sort(key=lambda x: sqdist(x, start))
+    i1=1
+    i2=1
+    ## common starting point
+    _assert(points[0][0] == points[1][0])
+    blacklist = []
+    last_near_points = None
+    last_counters = (0,0)
+    while i1<len(points[0]) and i2<len(points[1]):
+        if sqdist(points[0][i1], points[1][i2]) < sqthreshold:
+            if last_near_points:
+                blacklist.append(last_near_points[1])
+            last_near_points = (points[0][i1], points[1][i2])
+            last_counters = (i1, i2)
+        else:
+            if i1>last_counters[0]+2 and i2>last_counters[0]+2:
+                return (blacklist, last_near_points)
+        if sqdist(points[0][i1], start) < sqdist(points[1][i2], start):
+            i1 += 1
+        else:
+            i2 += 1
+    return (blacklist, last_near_points)
+
+def save_paths(continent, paths, filename='/tmp/test.svg'):
     g = continent.find('{http://www.w3.org/2000/svg}g')
-    for path in g.findall('{http://www.w3.org/2000/svg}path'):
-        global_segments.update(set(find_absolute_path_segments(path.get('d'))))
-        g.remove(path)
-
-    for segment in global_segments:
-        start_point = rounded(segment[0][1][0])
-        end_point = rounded(segment[-1][-1][-1])
-        for potentially_reversed_segment in global_segments_by_start_point[end_point]:
-            if rounded(potentially_reversed_segment[0][1][0]) == end_point:
-                ## this segment is a duplicate, but in the reversed direction
-                continue
-        global_segments_by_point[start_point].append(segment)
-        global_segments_by_point[end_point].append(segment)
-        for point in (start_point, end_point):
-            if len(global_segments_by_point[point])>2:
-                junctions.add(point)
-        global_segments_by_start_point[start_point].append(segment)
-
-    print(f"num segments: {sum([len(x) for x in global_segments_by_start_point.values()])}")
-
-    paths = cut_paths(global_segments_by_start_point, junctions)
-
     i=0
+    elements = []
     for path in paths:
         i+=1
         path_element = etree.Element('{http://www.w3.org/2000/svg}path')
         path_element.set('d', _printable_segments2(path))
         path_element.set('style', 'fill:none;stroke:#ff0000;stroke-width:0.25')
         path_element.set('id', f'line{i:02d}')
+        elements.append(path_element)
         g.append(path_element)
     
-    with open('/tmp/test.svg', 'bw') as f:
+    with open(filename, 'bw') as f:
         f.write(etree.tostring(continent))
 
+    for path in elements:
+        g.remove(path)
+
+def evict_start_end_duplicate_segments(segments_by_point):
+    """
+    let's assert we don't have any closed loops involving nothing but two bezier segments
+    """
+    blacklist = set()
+    for point in segments_by_point:
+        for a in segments_by_point[point]:
+            for b in segments_by_point[point]:
+                if a == b:
+                    continue
+                if ((a[0][0][0] == b[0][0][0] and a[-1][-1][-1] == b[-1][-1][-1]) or
+                    (a[0][0][0] == b[-1][-1][-1] and a[-1][-1][-1] == b[0][0][0])):
+                    blacklist.add(b)
+    return (segments_by_points_to_set(segments_by_point) - blacklist)
+
+def segments_replaced(segments_by_point, src, dst):
+    all_segments = segments_by_points_to_set(segments_by_point)
+    bad_segments = segments_by_point.pop(src)
+    for bad_segment in bad_segments:
+        all_segments.remove(bad_segment)
+        try:
+            foo = bad_segment[0][1][0]
+        except:
+            import pdb; pdb.set_trace()
+        if bad_segment[0][1][0] == src:
+            new_segment = (('M', (dst,)), bad_segment[1])
+        else:
+            new_segment = (bad_segment[0], (bad_segment[1][0], bad_segment[1][1][0:-1]+(dst,)))
+        if new_segment[0][0][0] != new_segment[-1][-1][-1]:
+            all_segments.add(new_segment)
+    return all_segments
+
+def segments_by_points_to_set(segments_by_point):
+    segments_set = set()
+    for segments in segments_by_point.values():
+        for segment in segments:
+            segments_set.add(segment)
+    return segments_set
+
+def remove_blacklisted_segments(segments_by_point, blacklist):
+    for point in blacklist:
+        if point in segments_by_point:
+            segments_by_point.pop(point)
+    return segments_by_points_to_set(segments_by_point)
+
+def find_segment_points(segments):
+    segments_by_start_point = defaultdict(list)
+    segments_by_point = defaultdict(list)
+    junctions = set()
+    for segment in segments:
+        start_point = segment[0][1][0]
+        end_point = segment[-1][-1][-1]
+        for potentially_duplicated_segment in segments_by_start_point[start_point]:
+            if potentially_duplicated_segment[-1][-1][-1] == end_point:
+                ## this segment is a duplicate, probably with different bezier points or different command, but most likely it should be discarded
+                print(f"almost-duplicates(?): {potentially_duplicated_segment} {segment} - dropping the last one")
+                #segment = None
+        if not segment:
+            continue
+        for potentially_reversed_segment in segments_by_start_point[end_point]:
+            if potentially_reversed_segment[0][1][0] == end_point:
+                ## this segment is a duplicate, but in the reversed direction
+                print(f"reverse-duplicate(?): {potentially_reversed_segment} {segment} - dropping the last one")
+                #segment = None
+        if not segment:
+            continue
+        segments_by_point[start_point].append(segment)
+        segments_by_point[end_point].append(segment)
+        for point in (start_point, end_point):
+            if len(segments_by_point[point])>2:
+                junctions.add(point)
+        segments_by_start_point[start_point].append(segment)
+    return(segments_by_start_point, segments_by_point, junctions)
+
+def find_micro_path(paths):
+    for path in paths:
+        if len(path) == 1:
+            pp = path_points(path)
+            _assert(len(pp)==2)
+            if sqdist(*pp)<SQTHRESH:
+                return pp
+
+def remove_near_dupes(paths, segments_by_point):
+    for i1 in range(0, len(paths)):
+        for i2 in range(i1+1, len(paths)):
+            blacklist,last_points = path_conflicts(paths[i1], paths[i2])
+            if blacklist: # or last_points:
+                segments = remove_blacklisted_segments(segments_by_point, blacklist)
+                segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
+                print(f"junctions2: {junctions}")
+
+                segments = segments_replaced(segments_by_point, last_points[0], last_points[1])
+                segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
+                paths = cut_paths(segments_by_start_point, junctions)
+                print(f"junctions3: {junctions}")
+                return (segments_by_start_point, segments_by_point, junctions, paths)
+    return None
+
+if __name__ == '__main__':
+    segments = set()
+    blacklist = []
+
+    with open(sys.argv[1], 'br') as f:
+        continent = etree.XML(f.read())
+    g = continent.find('{http://www.w3.org/2000/svg}g')
+    for path in g.findall('{http://www.w3.org/2000/svg}path'):
+        segments.update(set(find_absolute_path_segments(path.get('d'))))
+        g.remove(path)
+
+    (segments_by_start_point, segments_by_point, junctions) = find_segment_points(segments)
+    #segments = evict_start_end_duplicate_segments(segments_by_point)
+    #(segments_by_start_point, segments_by_point, junctions) = find_segment_points(segments)
+
+    print(f"num segments: {sum([len(x) for x in segments_by_start_point.values()])}")
+
+    paths = cut_paths(segments_by_start_point, junctions)
+
+    ## TODO: this code is maybe not needed?
+    while True:
+        mp = find_micro_path(paths)
+        if not mp:
+            break
+        import pdb; pdb.set_trace()
+        segments = segments_replaced(segments_by_point, mp[0], mp[1])
+        segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
+        paths = cut_paths(segments_by_start_point, junctions)
+
+    print(f"junctions1: {junctions}")
+    foo = True
+    while foo:
+        foo = remove_near_dupes(paths, segments_by_point)
+        if foo:
+            (segments_by_start_point, segments_by_point, junctions, paths) = foo
+
+    save_paths(continent, paths)
