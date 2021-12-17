@@ -353,11 +353,13 @@ def find_segment_points(segments):
     for segment in segments:
         start_point = segment[0][1][0]
         end_point = segment[-1][-1][-1]
+        if start_point == (Decimal('236.09351'), Decimal('185.72153')) or end_point == (Decimal('236.09351'), Decimal('185.72153')):
+            import pdb; pdb.set_trace()
         for potentially_duplicated_segment in segments_by_start_point[start_point]:
             if potentially_duplicated_segment[-1][-1][-1] == end_point:
                 ## this segment is a duplicate, probably with different bezier points or different command, but most likely it should be discarded
                 print(f"almost-duplicates(?): {potentially_duplicated_segment} {segment} - dropping the last one?")
-                #segment = None
+                segment = None
         if not segment:
             continue
         for potentially_reversed_segment in segments_by_start_point[end_point]:
@@ -388,10 +390,13 @@ def remove_near_dupes(paths, segments_by_point):
     for i1 in range(0, len(paths)):
         for i2 in range(i1+1, len(paths)):
             blacklist,last_points = path_conflicts(paths[i1], paths[i2])
-            if blacklist: # or last_points:
-                segments = remove_blacklisted_segments(segments_by_point, blacklist)
-                segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
-                print(f"junctions2: {junctions}")
+            if blacklist or (last_points and last_points[0] != last_points[1]):
+                if blacklist:
+                    segments = remove_blacklisted_segments(segments_by_point, blacklist)
+                    segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
+                    print(f"junctions2: {junctions}")
+                else:
+                    import pdb; pdb.set_trace()
 
                 segments = segments_replaced(segments_by_point, last_points[0], last_points[1])
                 segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
