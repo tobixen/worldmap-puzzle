@@ -4,6 +4,7 @@ import re
 from lxml import etree
 import sys
 from decimal import Decimal
+from collections import defaultdict
 
 def _verify_segments(list_of_segments):
     for x in list_of_segments:
@@ -89,6 +90,7 @@ def find_absolute_path_segments(d_string):
 
     last_point = None
 
+    start_point = None
     for segment in segments:
         (command, points) = segment
         if command == 'm':
@@ -97,7 +99,10 @@ def find_absolute_path_segments(d_string):
                 last_point = points[0]
             else:
                 last_point = _sum(last_point, points[0])
-            start_point = last_point
+            if start_point is None:
+                start_point = last_point
+            else:
+                import pdb; pdb.set_trace()
             if len(points) > 1:
                 points.pop(0)
                 command = 'l'
@@ -108,6 +113,7 @@ def find_absolute_path_segments(d_string):
             moveto = ('M', (last_point,))
 
         _assert(last_point[1]>10)
+        _assert(start_point is not None)
 
         if command == 'l':
             for point in points:
@@ -137,10 +143,12 @@ def find_absolute_path_segments(d_string):
                 moveto = ('M', (last_point,))
         elif command == 'z':
             assert not points
-            ## first segment, first command (move), points, first (and only) point
-            absolute_independent_segments.append((moveto, ('L', (start_point,))))
-            #absolute_independent_segments.append((('L', (absolute_independent_segments[0][0][1][0],)),))
-            _verify_segments(absolute_independent_segments)
+            assert start_point is not None
+            if start_point != last_point:
+                absolute_independent_segments.append((moveto, ('L', (start_point,))))
+                _verify_segments(absolute_independent_segments)
+                last_point = start_point
+            start_point = None
         else:
             raise NotImplementedError(f"move command {command}")
         _verify_segments(absolute_independent_segments)
@@ -162,43 +170,58 @@ def _printable_segments(segments):
 def _printable_segments2(set_of_independent_segments):
     return " ".join([_printable_segments(segments) for segments in set_of_independent_segments])
 
-def cut_paths(g, global_segments_by_start_point):
-    prev_point = (0,0)
-    start_point = (0,0)
+def find_a_start_point(global_segments_by_start_point):
+    for x in global_segments_by_start_point:
+        if len(global_segments_by_start_point[x])>1:
+            return x
+    return x
+
+def cut_paths(global_segments_by_start_point, junctions):
+    prev_point = None
+    start_point = None
     paths = []
     points_visited = set()
     while global_segments_by_start_point:
-        distance_square=1<<31
-        for start_point_ in global_segments_by_start_point:
-            distance_square_ = 0
-            for x in zip(start_point_, prev_point):
-                distance_square_ += (x[0]-x[1])**2
-            if distance_square_ < distance_square:
-                distance_square = distance_square_
-                start_point = start_point_
-        assert(start_point != (0,0))
+        if prev_point is None:
+            start_point = find_a_start_point(global_segments_by_start_point)
+        else:
+            distance_square=1<<31
+            for start_point_ in global_segments_by_start_point:
+                distance_square_ = 0
+                for x in zip(start_point_, prev_point):
+                    distance_square_ += (x[0]-x[1])**2
+                if distance_square_ < distance_square:
+                    distance_square = distance_square_
+                    start_point = start_point_
+        assert(start_point is not None)
         assert(start_point in global_segments_by_start_point)
         path = []
         while start_point in global_segments_by_start_point:
-            next_segment = global_segments_by_start_point[start_point].pop()
-            if not global_segments_by_start_point[start_point]:
-                global_segments_by_start_point.pop(start_point)
+            if start_point in junctions:
+                paths.append(path)
+                path = []
+            next_segment = global_segments_by_start_point[rounded(start_point)].pop()
+            if not global_segments_by_start_point[rounded(start_point)]:
+                global_segments_by_start_point.pop(rounded(start_point))
             prev_start_point = start_point
-            start_point = next_segment[-1][-1][-1]
-            if prev_start_point in points_visited and start_point in points_visited:
-                break
+            start_point = rounded(next_segment[-1][-1][-1])
             path.append(next_segment)
-            if start_point in points_visited:
-                break
             points_visited.add(start_point)
-        _assert(len(path)>0)
         print(len(global_segments_by_start_point))
-        paths.append(path)
+        if len(path)>0:
+            paths.append(path)
+        else:
+            print(f"something muffens at {start_point}")
     return paths
+
+def rounded(point, num_decimals=3):
+    return (round(point[0], num_decimals), round(point[1], num_decimals))
 
 if __name__ == '__main__':
     global_segments = set()
-    global_segments_by_start_point = {}
+    global_segments_by_start_point = defaultdict(list)
+    global_segments_by_point = defaultdict(list)
+    junctions = set()
 
     with open(sys.argv[1], 'br') as f:
         continent = etree.XML(f.read())
@@ -208,14 +231,22 @@ if __name__ == '__main__':
         g.remove(path)
 
     for segment in global_segments:
-        start_point = segment[0][1]
-        assert(len(start_point) == 1)
-        start_point = start_point[0]
-        if not start_point in global_segments_by_start_point:
-            global_segments_by_start_point[start_point] = []
+        start_point = rounded(segment[0][1][0])
+        end_point = rounded(segment[-1][-1][-1])
+        for potentially_reversed_segment in global_segments_by_start_point[end_point]:
+            if rounded(potentially_reversed_segment[0][1][0]) == end_point:
+                ## this segment is a duplicate, but in the reversed direction
+                continue
+        global_segments_by_point[start_point].append(segment)
+        global_segments_by_point[end_point].append(segment)
+        for point in (start_point, end_point):
+            if len(global_segments_by_point[point])>2:
+                junctions.add(point)
         global_segments_by_start_point[start_point].append(segment)
 
-    paths = cut_paths(g, global_segments_by_start_point)
+    print(f"num segments: {sum([len(x) for x in global_segments_by_start_point.values()])}")
+
+    paths = cut_paths(global_segments_by_start_point, junctions)
 
     i=0
     for path in paths:
