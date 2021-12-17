@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-SQTHRESH=0.001
+SQTHRESH=0.0005
 
 import re
 from lxml import etree
@@ -200,6 +200,9 @@ def cut_paths(segments_by_start_point, junctions):
         assert(start_point in segments_by_start_point)
         path = []
         while start_point in segments_by_start_point:
+            if not segments_by_start_point[start_point]:
+                segments_by_start_point.pop(start_point)
+                continue
             if start_point in junctions and len(path)>0:
                 paths.append(path)
                 path = []
@@ -230,7 +233,7 @@ def path_points(path):
 def path_conflicts(a, b, sqthreshold=SQTHRESH):
     """The original data contains duplicated paths.  A lot of effort has
     been put into removing true duplicates, this method attempts to
-    remove parts of paths containing almost overlapping lines.  (Two
+    remove arts of paths containing almost overlapping lines.  (Two
     paths also should not cross each other (this is not tested for
     currently).
 
