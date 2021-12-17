@@ -200,9 +200,6 @@ def cut_paths(segments_by_start_point, junctions):
         assert(start_point in segments_by_start_point)
         path = []
         while start_point in segments_by_start_point:
-            if not segments_by_start_point[start_point]:
-                segments_by_start_point.pop(start_point)
-                break
             if start_point in junctions and len(path)>0:
                 paths.append(path)
                 path = []
@@ -361,10 +358,10 @@ def find_segment_points(segments):
         if not segment:
             continue
         for potentially_reversed_segment in segments_by_start_point[end_point]:
-            if potentially_reversed_segment[0][1][0] == end_point:
+            if potentially_reversed_segment[-1][-1][-1] == end_point:
                 ## this segment is a duplicate, but in the reversed direction
                 print(f"reverse-duplicate(?): {potentially_reversed_segment} <--->  {segment} - dropping the last one?")
-                #segment = None
+                segment = None
         if not segment:
             continue
         segments_by_point[start_point].append(segment)
@@ -373,6 +370,7 @@ def find_segment_points(segments):
             if len(segments_by_point[point])>2:
                 junctions.add(point)
         segments_by_start_point[start_point].append(segment)
+    print(f'num points and num segments by point and by start point: {len(segments_by_point)} {len(segments_by_start_point)} {sum([len(x) for x in segments_by_point.values()])} {sum([len(x) for x in segments_by_start_point.values()])}')
     return(segments_by_start_point, segments_by_point, junctions)
 
 def find_micro_path(paths):
@@ -433,6 +431,7 @@ if __name__ == '__main__':
     while foo:
         foo = remove_near_dupes(paths, segments_by_point)
         if foo:
+            import pdb; pdb.set_trace()
             (segments_by_start_point, segments_by_point, junctions, paths) = foo
 
     save_paths(continent, paths)
