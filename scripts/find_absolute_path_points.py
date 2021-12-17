@@ -356,14 +356,14 @@ def find_segment_points(segments):
         for potentially_duplicated_segment in segments_by_start_point[start_point]:
             if potentially_duplicated_segment[-1][-1][-1] == end_point:
                 ## this segment is a duplicate, probably with different bezier points or different command, but most likely it should be discarded
-                print(f"almost-duplicates(?): {potentially_duplicated_segment} {segment} - dropping the last one")
+                print(f"almost-duplicates(?): {potentially_duplicated_segment} {segment} - dropping the last one?")
                 #segment = None
         if not segment:
             continue
         for potentially_reversed_segment in segments_by_start_point[end_point]:
             if potentially_reversed_segment[0][1][0] == end_point:
                 ## this segment is a duplicate, but in the reversed direction
-                print(f"reverse-duplicate(?): {potentially_reversed_segment} {segment} - dropping the last one")
+                print(f"reverse-duplicate(?): {potentially_reversed_segment} <--->  {segment} - dropping the last one?")
                 #segment = None
         if not segment:
             continue
