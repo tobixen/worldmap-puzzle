@@ -46,10 +46,15 @@ def _d_cmd_points(d_string):
     command = commandmatch.group(1)
     d_string = commandmatch.group(2)
     points = []
+    prev_command = None
 
     while True:
+        if prev_command in ('V','v','H','h') and re.match(f"\s*({num})\s*(.*)", d_string) and not re.match(f"\s*({num},{num})(.*)", d_string):
+            if pointmatch:
+                command = prev_command
         if command in ('V','v','H','h'):
-            pointmatch = re.match(f"\s*({num})(.*)", d_string)
+            prev_command = command
+            pointmatch = re.match(f"\s*({num})\s*(.*)", d_string)
         else:
             pointmatch = re.match(f"\s*({num},{num})(.*)", d_string)
         if not pointmatch:
@@ -69,7 +74,7 @@ def _d_cmd_points(d_string):
         else:
             points.append(_text2tuple(pointmatch.group(1)))
         d_string = pointmatch.group(2)
-    points = [point for point in points]
+     
     return(command, points, d_string)
 
 def find_absolute_path_segments(d_string):
@@ -85,7 +90,7 @@ def find_absolute_path_segments(d_string):
         prev = d_string
         (move, points, d_string) = _d_cmd_points(d_string)
         if not segments:
-            assert(move == 'm')
+            assert(move in ('m', 'M'))
         segments.append((move, points))
         assert(prev != d_string)
         if not d_string:
@@ -96,7 +101,7 @@ def find_absolute_path_segments(d_string):
     start_point = None
     for segment in segments:
         (command, points) = segment
-        if command == 'm':
+        if command in ('m', 'M'):
             #absolute_independent_segments.append((('M', (points[0],)),))
             if last_point is None:
                 last_point = points[0]
@@ -108,7 +113,10 @@ def find_absolute_path_segments(d_string):
                 import pdb; pdb.set_trace()
             if len(points) > 1:
                 points.pop(0)
-                command = 'l'
+                if command == 'm':
+                    command = 'l'
+                else:
+                    command = 'L'
                 moveto = ('M', (last_point,))
             else:
                 continue
@@ -144,7 +152,15 @@ def find_absolute_path_segments(d_string):
                 ## last segment, last command, points, third point
                 last_point = absolute_independent_segments[-1][-1][1][2]
                 moveto = ('M', (last_point,))
-        elif command == 'z':
+        elif command == 'C':
+            assert((len(points)%3) == 0)
+            for cnt in range(0, len(points)//3):
+                triple_point = points[cnt*3:cnt*3+3]
+                absolute_independent_segments.append((moveto, ('C', tuple(triple_point))))
+                ## last segment, last command, points, third point
+                last_point = absolute_independent_segments[-1][-1][1][2]
+                moveto = ('M', (last_point,))
+        elif command in ('z', 'Z'):
             assert not points
             assert start_point is not None
             if start_point != last_point:
@@ -176,7 +192,7 @@ def _printable_segments2(set_of_independent_segments):
 def find_a_start_point(segments_by_start_point):
     for x in segments_by_start_point:
         if len(segments_by_start_point[x])>1:
-            print(x)
+            #print(x)
             return x
     print("closed loop?  no more junctions found?")
     return x
@@ -191,6 +207,10 @@ def cut_paths(segments_by_start_point, junctions):
             start_point = find_a_start_point(segments_by_start_point)
         else:
             distance_square=1<<31
+            if [x for x in junctions if x in segments_by_start_point]:
+                possible_starting_points = junctions
+            else:
+                possible_starting_points = segments_by_start_point.keys()
             for start_point_ in segments_by_start_point:
                 distance_square_ = 0
                 for x in zip(start_point_, prev_point):
@@ -201,6 +221,7 @@ def cut_paths(segments_by_start_point, junctions):
         assert(start_point is not None)
         assert(start_point in segments_by_start_point)
         path = []
+        prev_start_point = None
         while start_point in segments_by_start_point:
             if not segments_by_start_point[start_point]:
                 import pdb; pdb.set_trace()
@@ -210,6 +231,10 @@ def cut_paths(segments_by_start_point, junctions):
             if start_point in junctions and len(path)>0:
                 paths.append(path)
                 path = []
+            #if prev_start_point:
+                #for potentially_reversed_segment in segments_by_start_point[start_point]:
+                    #if potentially_reversed_segment[-1][-1][-1] == prev_start_point:
+                        #segments_by_start_point[start_point].remove(potentially_reversed_segment)
             next_segment = segments_by_start_point[start_point].pop()
             if not segments_by_start_point[start_point]:
                 segments_by_start_point.pop(start_point)
@@ -268,17 +293,19 @@ def path_conflicts(a, b, sqthreshold=SQTHRESH):
     i2=1
     ## common starting point
     _assert(points[0][0] == points[1][0])
-    movelist = []
+    movelist = {}
     last_near_points = None
     last_counters = (0,0)
     while i1<len(points[0]) and i2<len(points[1]):
         if sqdist(points[0][i1], points[1][i2]) < sqthreshold:
             if last_near_points and last_near_points[0] != last_near_points[1]:
                 ## don't do anything stupid, better to return now
-                if ((last_near_points[0] in [x[0] for x in movelist]) or
-                    (last_near_points[0] in [x[1] for x in movelist])):
+                if ((last_near_points[0] in movelist) or
+                    (last_near_points[0] in movelist.values())):
+                    ## but this probably shouldn't happen
+                    import pdb; pdb.set_trace()
                     return movelist
-                movelist.append(last_near_points)
+                movelist[last_near_points[0]] = last_near_points[1]
             last_near_points = (points[0][i1], points[1][i2])
             last_counters = (i1, i2)
         else:
@@ -314,21 +341,31 @@ def evict_start_end_duplicate_segments(segments_by_point):
     let's assert we don't have any closed loops involving nothing but two bezier segments
     """
     blacklist = set()
-    whitelist = set()
     for point in segments_by_point:
-        for a in segments_by_point[point]:
-            for b in segments_by_point[point]:
-                if a == b:
-                    continue
-                if (not b in whitelist and (
-                        (a[0][0][0] == b[0][0][0] and a[-1][-1][-1] == b[-1][-1][-1]) or
-                        (a[0][0][0] == b[-1][-1][-1] and a[-1][-1][-1] == b[0][0][0]))):
+        pl = segments_by_point[point]
+        for i1 in range(0, len(pl)):
+            for i2 in range(i1+1, len(pl)):
+                a=pl[i1] ; b = pl[i2]
+                if ((a[0][0][0] == b[0][0][0] and a[-1][-1][-1] == b[-1][-1][-1]) or
+                    (a[0][0][0] == b[-1][-1][-1] and a[-1][-1][-1] == b[0][0][0])):
                     blacklist.add(b)
-                else:
-                    whitelist.add(b)
     return (segments_by_points_to_set(segments_by_point) - blacklist)
 
 def segments_replaced(segments_by_point, movelist):
+    all_segments = segments_by_points_to_set(segments_by_point)
+    return_list = set()
+    ## first, move the starting point of all affected segments
+    for segment in all_segments:
+        start = segment[0][1][0]
+        stop = segment[-1][-1][-1]
+        if start in movelist or stop in movelist:
+            start = movelist.get(start, start)
+            end = movelist.get(stop, stop)
+            segment = (('M', (start,)),(segment[1][0], segment[1][1][0:-1]+(end,)))
+        return_list.add(segment)
+    return return_list
+
+def segments_replaced_verybuggy(segments_by_point, movelist):
     debug_removed = set()
     debug_added = set()
     for m in movelist:
@@ -396,14 +433,18 @@ def remove_blacklisted_segments(segments_by_point, blacklist):
 def find_segment_points(segments):
     segments_by_start_point = defaultdict(list)
     segments_by_point = defaultdict(list)
+    no_reverse_dup_segments_by_point = defaultdict(list)
     junctions = set()
     for segment in segments:
         start_point = segment[0][1][0]
         end_point = segment[-1][-1][-1]
-        if round(start_point[0]) == 239 or round(end_point[0]) == 239 and round(end_point[1]/10) == 18:
-            print(f"stupid junction1 {float(start_point[0]):6.2f} {float(end_point[0]):6.2f}   {segment}")
-        if round(start_point[0]) == 236 or round(end_point[0]) == 236 and round(end_point[1]/10) == 18:
-            print(f"stupid junction2 {float(start_point[0]):6.2f} {float(end_point[0]):6.2f}   {segment}")
+        #if start_point == (60,60) or end_point == (60,60):
+            #import pdb; pdb.set_trace()
+        _assert(start_point != end_point)
+        if (end_point == (Decimal('259.24981'), Decimal('181.85951')) or
+            start_point == (Decimal('259.24981'), Decimal('181.85951'))):
+            #import pdb; pdb.set_trace()
+            pass
         for potentially_duplicated_segment in segments_by_start_point[start_point]:
             if potentially_duplicated_segment[-1][-1][-1] == end_point:
                 ## this segment is a duplicate, probably with different bezier points or different command, but most likely it should be discarded
@@ -411,21 +452,30 @@ def find_segment_points(segments):
                 segment = None
         if not segment:
             continue
+        reverse_dup = False
         for potentially_reversed_segment in segments_by_start_point[end_point]:
-            if potentially_reversed_segment[-1][-1][-1] == end_point:
-                ## this segment is a duplicate, but in the reversed direction
-                print(f"reverse-duplicate(?): {potentially_reversed_segment} <--->  {segment} - dropping the last one?")
-                segment = None
+            if potentially_reversed_segment[-1][-1][-1] == start_point:
+                reverse_dup = True
+                print(f"reverse-duplicate(?): {potentially_reversed_segment} <--->  {segment} - one of them should be dropped, but which one?")
+                ## the remove-reverse-segment-logic has been moved to the cut-path function
         if not segment:
             continue
+        if not reverse_dup:
+            no_reverse_dup_segments_by_point[start_point].append(segment)
+            no_reverse_dup_segments_by_point[end_point].append(segment)
         segments_by_point[start_point].append(segment)
         segments_by_point[end_point].append(segment)
         for point in (start_point, end_point):
             if len(segments_by_point[point])>2:
+            #if len(no_reverse_dup_segments_by_point[point])>2:
                 junctions.add(point)
         segments_by_start_point[start_point].append(segment)
     print(f'num points and num segments by point and by start point: {len(segments_by_point)} {len(segments_by_start_point)} {sum([len(x) for x in segments_by_point.values()])} {sum([len(x) for x in segments_by_start_point.values()])}')
     #import pdb; pdb.set_trace()
+    ## no - segments may contain near-duplicates or reversed duplicates
+    #_assert(sum([len(x) for x in segments_by_start_point.values()]) == len(segments))
+    _assert(not [x for x in segments_by_point if len(segments_by_point[x])<2])
+
     return(segments_by_start_point, segments_by_point, junctions)
 
 def find_micro_path(paths):
@@ -444,17 +494,10 @@ def remove_near_dupes(paths, segments_by_point):
                 continue
             segments = segments_replaced(segments_by_point, movelist)
             segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
-            segments = segments_replaced(segments_by_point, movelist)
-            segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
-            for q in movelist:
-                _assert(not q[0] in segments_by_start_point)
             paths = cut_paths(segments_by_start_point, junctions)
             print(f"junctions3: {junctions}")
             return (segments_by_start_point, segments_by_point, junctions, paths)
     return None
-
-if __name__ == '__main__':
-    main(sys.argv[1])
 
 def main(filename):
     segments = set()
@@ -467,11 +510,13 @@ def main(filename):
         segments.update(set(find_absolute_path_segments(path.get('d'))))
         g.remove(path)
 
-    (segments_by_start_point, segments_by_point, junctions) = find_segment_points(segments)
-    #segments = evict_start_end_duplicate_segments(segments_by_point)
     #(segments_by_start_point, segments_by_point, junctions) = find_segment_points(segments)
-
-    print(f"num segments: {sum([len(x) for x in segments_by_start_point.values()])}")
+    #segments = evict_start_end_duplicate_segments(segments_by_point)
+    print(f"num segments originally: {len(segments)}")
+    (segments_by_start_point, segments_by_point, junctions) = find_segment_points(segments)
+    
+    print(f"num segments after segment finder: {len(segments_by_points_to_set(segments_by_point))}")
+    print(f"num segments (should be the same): {sum([len(x) for x in segments_by_start_point.values()])}")
 
     paths = cut_paths(segments_by_start_point, junctions)
 
@@ -481,7 +526,7 @@ def main(filename):
         if not mp:
             break
         import pdb; pdb.set_trace()
-        segments = segments_replaced(segments_by_point, [mp[0], mp[1]])
+        segments = segments_replaced(segments_by_point, {mp[0]: mp[1]})
         segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
         paths = cut_paths(segments_by_start_point, junctions)
 
@@ -491,6 +536,12 @@ def main(filename):
         foo = remove_near_dupes(paths, segments_by_point)
         if foo:
             (segments_by_start_point, segments_by_point, junctions, paths) = foo
+    print(f"num segments after further deduplication: {len(segments_by_points_to_set(segments_by_point))}")
 
     save_paths(continent, paths)
     return(paths, junctions)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1])
+
