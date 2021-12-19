@@ -1,12 +1,13 @@
 #!/usr/bin/python
 
-SQTHRESH=0.005
+THRESH=0.1
 
 import re
 from lxml import etree
 import sys
 from decimal import Decimal
 from collections import defaultdict
+from math import sqrt
 
 def _verify_segments(list_of_segments):
     for x in list_of_segments:
@@ -189,14 +190,6 @@ def _printable_segments(segments):
 def _printable_segments2(set_of_independent_segments):
     return " ".join([_printable_segments(segments) for segments in set_of_independent_segments])
 
-def find_a_start_point(segments_by_start_point):
-    for x in segments_by_start_point:
-        if len(segments_by_start_point[x])>1:
-            #print(x)
-            return x
-    print("closed loop?  no more junctions found?")
-    return x
-
 def cut_paths(segments_by_start_point, junctions):
     prev_point = None
     start_point = None
@@ -204,14 +197,24 @@ def cut_paths(segments_by_start_point, junctions):
     points_visited = set()
     while segments_by_start_point:
         if prev_point is None:
-            start_point = find_a_start_point(segments_by_start_point)
+            ## must be a nicer way
+            if junctions:
+                start_point = junctions.__iter__().__next__()
+                is_island = False
+            else:
+                start_point = segments_by_start_point.keys().__iter__().__next__()
+                is_island = True
         else:
             distance_square=1<<31
             if [x for x in junctions if x in segments_by_start_point]:
                 possible_starting_points = junctions
+                is_island = False
             else:
                 possible_starting_points = segments_by_start_point.keys()
-            for start_point_ in segments_by_start_point:
+                is_island = True
+            for start_point_ in possible_starting_points:
+                if not start_point_ in segments_by_start_point:
+                    continue
                 distance_square_ = 0
                 for x in zip(start_point_, prev_point):
                     distance_square_ += (x[0]-x[1])**2
@@ -221,7 +224,7 @@ def cut_paths(segments_by_start_point, junctions):
         assert(start_point is not None)
         assert(start_point in segments_by_start_point)
         path = []
-        prev_start_point = None
+        prev_point = None
         while start_point in segments_by_start_point:
             if not segments_by_start_point[start_point]:
                 import pdb; pdb.set_trace()
@@ -231,21 +234,28 @@ def cut_paths(segments_by_start_point, junctions):
             if start_point in junctions and len(path)>0:
                 paths.append(path)
                 path = []
-            #if prev_start_point:
-                #for potentially_reversed_segment in segments_by_start_point[start_point]:
-                    #if potentially_reversed_segment[-1][-1][-1] == prev_start_point:
-                        #segments_by_start_point[start_point].remove(potentially_reversed_segment)
+                prev_point = None
             next_segment = segments_by_start_point[start_point].pop()
             if not segments_by_start_point[start_point]:
                 segments_by_start_point.pop(start_point)
-            prev_start_point = start_point
+            prev_point = start_point
             start_point = next_segment[-1][-1][-1]
             path.append(next_segment)
             points_visited.add(start_point)
+            discarded_segments = set()
+            for potentially_reversed_segment in segments_by_start_point[start_point]:
+                if potentially_reversed_segment[-1][-1][-1] == prev_point:
+                    discarded_segments.add(potentially_reversed_segment)
+            for reversed_segment in discarded_segments:
+                segments_by_start_point[start_point].remove(reversed_segment)
+            if not segments_by_start_point[start_point]:
+                segments_by_start_point.pop(start_point)
         print(len(segments_by_start_point))
+        _assert(start_point in junctions or is_island)
         if len(path)>0:
             paths.append(path)
         else:
+            import pdb; pdb.set_trace()
             print(f"something muffens at {start_point}")
     return paths
 
@@ -259,7 +269,32 @@ def sqdist(a, b):
 def path_points(path):
     return [x[0][1][0] for x in path] + [ path[-1][-1][-1][-1] ]
 
-def path_conflicts(a, b, sqthreshold=SQTHRESH):
+def find_near_points(segments_by_points, threshold=THRESH):
+    """a simplification of path_conflicts"""
+    points = list(segments_by_points.keys())
+    movelist = {}
+    ## arbitrary point
+    ap = points[0]
+    points.sort(key=lambda x: sqdist(x, ap))
+    i1 = 0
+    while i1 < len(points):
+        i2 = i1+1
+        orig_dist = sqdist(points[i1], ap)
+        dst = points[i1]
+        if dst in movelist:
+            dst = movelist[dst]
+        #if points[i2][0]>100:
+            #import pdb; pdb.set_trace()
+        while ( i2 < len(points) and
+                sqrt(sqdist(points[i2], ap))-sqrt(orig_dist) < threshold):
+            if sqdist(points[i2], points[i1])<threshold**2:
+                movelist[points[i2]] = dst
+            i2 += 1
+        i1 += 1
+    return movelist
+
+
+def path_conflicts(a, b, threshold=THRESH):
     """The original data contains duplicated paths.  A lot of effort has
     been put into removing true duplicates, this method attempts to
     remove arts of paths containing almost overlapping lines.  (Two
@@ -297,15 +332,11 @@ def path_conflicts(a, b, sqthreshold=SQTHRESH):
     last_near_points = None
     last_counters = (0,0)
     while i1<len(points[0]) and i2<len(points[1]):
-        if sqdist(points[0][i1], points[1][i2]) < sqthreshold:
-            if last_near_points and last_near_points[0] != last_near_points[1]:
-                ## don't do anything stupid, better to return now
-                if ((last_near_points[0] in movelist) or
-                    (last_near_points[0] in movelist.values())):
-                    ## but this probably shouldn't happen
-                    import pdb; pdb.set_trace()
-                    return movelist
-                movelist[last_near_points[0]] = last_near_points[1]
+        if sqdist(points[0][i1], points[1][i2]) < threshold**2:
+            if points[0][i1] != points[1][i2]:
+                #if points[0][i1] not in junctions:
+                movelist[points[0][i1]] = points[1][i2]
+                #else:  movelist[points[1][i2]] = points[0][i1]
             last_near_points = (points[0][i1], points[1][i2])
             last_counters = (i1, i2)
         else:
@@ -313,8 +344,22 @@ def path_conflicts(a, b, sqthreshold=SQTHRESH):
                 return movelist
         if sqdist(points[0][i1], start) < sqdist(points[1][i2], start):
             i1 += 1
-        else:
+        elif sqdist(points[0][i1], start) > sqdist(points[1][i2], start):
             i2 += 1
+        else:
+            if i1+1<len(points[0]) and i2+1<len(points[1]):
+                if sqdist(points[0][i1+1], start) < sqdist(points[1][i2+1], start):
+                    i1 += 1
+                elif sqdist(points[0][i1+1], start) > sqdist(points[1][i2+1], start):
+                    i2 += 1
+                else:
+                    i1+=1
+                    i2+=1
+            elif i1+1<len(points[0]):
+                i1 += 1
+            else:
+                i2 += 1
+        
     return movelist
 
 def save_paths(continent, paths, filename='/tmp/test.svg'):
@@ -435,16 +480,23 @@ def find_segment_points(segments):
     segments_by_point = defaultdict(list)
     no_reverse_dup_segments_by_point = defaultdict(list)
     junctions = set()
+
+    debug_point1 = (Decimal('205.13'),Decimal('130.839'))
+    debug_point2 = (Decimal('204.449'),Decimal('132.213'))
+    debug_segments1 = [x for x in segments if sqdist(x[0][1][0], debug_point1)<0.5 or sqdist(x[-1][-1][-1], debug_point1)<0.5]
+    debug_segments = [x for x in segments if sqdist(x[0][1][0], debug_point2)<0.5 or sqdist(x[-1][-1][-1], debug_point2)<0.5 and x in debug_segments1]
+
     for segment in segments:
+        if segment in debug_segments:
+            import pdb; pdb.set_trace()
         start_point = segment[0][1][0]
         end_point = segment[-1][-1][-1]
-        #if start_point == (60,60) or end_point == (60,60):
+        if start_point == end_point:
+            ## this may happen due to "snapped" points.
+            continue
+        #if (rounded(end_point) == rounded(fake_junction) or
+            #rounded(start_point) == rounded(fake_junction)):
             #import pdb; pdb.set_trace()
-        _assert(start_point != end_point)
-        if (end_point == (Decimal('259.24981'), Decimal('181.85951')) or
-            start_point == (Decimal('259.24981'), Decimal('181.85951'))):
-            #import pdb; pdb.set_trace()
-            pass
         for potentially_duplicated_segment in segments_by_start_point[start_point]:
             if potentially_duplicated_segment[-1][-1][-1] == end_point:
                 ## this segment is a duplicate, probably with different bezier points or different command, but most likely it should be discarded
@@ -466,8 +518,8 @@ def find_segment_points(segments):
         segments_by_point[start_point].append(segment)
         segments_by_point[end_point].append(segment)
         for point in (start_point, end_point):
-            if len(segments_by_point[point])>2:
-            #if len(no_reverse_dup_segments_by_point[point])>2:
+            #if len(segments_by_point[point])>2:
+            if len(no_reverse_dup_segments_by_point[point])>2:
                 junctions.add(point)
         segments_by_start_point[start_point].append(segment)
     print(f'num points and num segments by point and by start point: {len(segments_by_point)} {len(segments_by_start_point)} {sum([len(x) for x in segments_by_point.values()])} {sum([len(x) for x in segments_by_start_point.values()])}')
@@ -483,20 +535,93 @@ def find_micro_path(paths):
         if len(path) == 1:
             pp = path_points(path)
             _assert(len(pp)==2)
-            if sqdist(*pp)<SQTHRESH:
+            if sqdist(*pp)<THRESH**2:
                 return pp
 
 def remove_near_dupes(paths, segments_by_point):
+    movelist = find_near_points(segments_by_point)
+    segments = segments_replaced(segments_by_point, movelist)
+    segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
+    paths = cut_paths(segments_by_start_point, junctions)
+    print(f"junctions3: {junctions}")
+    if movelist:
+        return (segments_by_start_point, segments_by_point, junctions, paths)
+    else:
+        return None
+
+def remove_near_duplicated_paths(paths):
+    ## TODO: it yields false positives in case of very simple border lines
+    ## with two or three points
+    blacklist = []
     for i1 in range(0, len(paths)):
         for i2 in range(i1+1, len(paths)):
-            movelist = path_conflicts(paths[i1], paths[i2])
-            if not movelist:
-                continue
-            segments = segments_replaced(segments_by_point, movelist)
-            segments_by_start_point, segments_by_point, junctions = find_segment_points(segments)
-            paths = cut_paths(segments_by_start_point, junctions)
-            print(f"junctions3: {junctions}")
-            return (segments_by_start_point, segments_by_point, junctions, paths)
+            ## this one should not return anything as path_conflicts have been
+            ## superceded by find_near_points, but let's verify that ...
+            _assert(not path_conflicts(paths[i1], paths[i2]))
+            
+            start1 = paths[i1][0][0][1][0]
+            start2 = paths[i2][0][0][1][0]
+            end1 = paths[i1][-1][-1][-1][-1]
+            end2 = paths[i2][-1][-1][-1][-1]
+            #debug_point =  (Decimal('238.66615'), Decimal('201.26453'))
+            #if (min(sqdist(start1, debug_point),
+                    #sqdist(end1, debug_point))<1 and
+                #min(sqdist(start2, debug_point),
+                    #sqdist(end2, debug_point))<1):
+                #import pdb; pdb.set_trace()
+            if ((start1 == start2 and end1 == end2) or
+                (start1 == end2 and end1 == start2)):
+                ## Two paths with the same start point and end point.
+                ## This may be perfectly legitimate, in case a country has exactly
+                ## two borders.
+                ## If the two paths are going in the same direction but with
+                ## slightly different points, then one of them should be removed
+                path1 = path_points(paths[i1])
+                path2 = path_points(paths[i2])
+                if path1[0] == path2[-1]:
+                    path2.reverse()
+                sum_sqdist = 0
+                cnt = 0
+                j1 = 1
+                j2 = 1
+                while j1 < len(path1)-1 and j2 < len(path1)-1:
+                    dist0 = sqdist(path1[j1], path2[j2])
+                    dist1 = sqdist(path1[j1+1], path2[j2])
+                    dist2 = sqdist(path1[j1], path2[j2+1])
+                    dist3 = sqdist(path1[j1+1], path2[j2+1])
+                    
+                    sum_sqdist += dist0
+                    cnt += 1
+                    
+                    ## one or both the counters should be moved forward
+                    mindist = min(dist1, dist2, dist3)
+                    if mindist == dist1:
+                        j1 += 1
+                    elif mindist == dist2:
+                        j2 += 1
+                    else:
+                        j1 += 1
+                        j2 += 1
+
+                ## TODO: the risk of false negatives here are big, consider
+                ## two long straight lines where one line has two points and
+                ## the other line has three points ... should probably either
+                ## increase the threshold or use a smarter algorithm
+                if sum_sqdist / (cnt+2) < THRESH**2:
+                    import pdb; pdb.set_trace()
+                    blacklist.append(i1)
+                    continue
+
+    if blacklist:
+        remaining_segments = set()
+        for i in range(0,len(paths)):
+            if i not in blacklist:
+                for x in paths[i]:
+                    remaining_segments.add(x)
+        segments_by_start_point, segments_by_point, junctions = find_segment_points(remaining_segments)
+        paths = cut_paths(segments_by_start_point, junctions)
+        print(f"junctions3: {junctions}")
+        return (segments_by_start_point, segments_by_point, junctions, paths)
     return None
 
 def main(filename):
@@ -535,6 +660,12 @@ def main(filename):
     while foo:
         foo = remove_near_dupes(paths, segments_by_point)
         if foo:
+            (segments_by_start_point, segments_by_point, junctions, paths) = foo
+        ## maybe this isn't needed
+        #foo = remove_near_duplicated_paths(paths)
+        foo = None
+        if foo:
+            import pdb; pdb.set_trace()
             (segments_by_start_point, segments_by_point, junctions, paths) = foo
     print(f"num segments after further deduplication: {len(segments_by_points_to_set(segments_by_point))}")
 
