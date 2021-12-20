@@ -159,8 +159,8 @@ class FunctionalTests(TestCase):
 class ContinentTests(TestCase):
     def test_australia(self):
         paths, junctions = p.main('../common/maptiles-spare-pieces/australia/australia.svg')
-        self.assertTrue((Decimal('412.96204'), Decimal('289.27004')) in junctions)
-        self.assertTrue((Decimal('394.52484'), Decimal('234.60159')) in junctions)
+        self.assertTrue(p.rounded((Decimal('412.96204'), Decimal('289.27004'))) in [p.rounded(x) for x in junctions])
+        self.assertTrue(p.rounded((Decimal('394.52484'), Decimal('234.60159'))) in [p.rounded(x) for x in junctions])
         self.assertEqual(len(junctions), 2)
         self.assertEqual(len(paths), 8)
         
@@ -169,9 +169,24 @@ class ContinentTests(TestCase):
         self.assertEqual(len(junctions), 8)
         self.assertEqual(len(paths), 13)
 
-    def test_africa(self):
+    def test_europe(self):
         paths, junctions = p.main('../common/maptiles-spare-pieces/europe/europe.svg')
         ## TODO: fix numbers below
         ## 3 islands
         self.assertEqual(len(junctions), 8)
-        self.assertEqual(len(paths), 13)
+        self.assertEqual(len(paths), 15)
+
+    #def test_north_america(self):
+        #paths, junctions = p.main('../common/maptiles-spare-pieces/north-america/north-america.svg')
+        #self.assertEqual(len(junctions), 14)
+        #self.assertEqual(len(paths), 15)
+
+    def test_south_america(self):
+        paths, junctions = p.main('../common/maptiles-spare-pieces/south-america/south-america.svg')
+        self.assertEqual(len(junctions), 6)
+        self.assertEqual(len(paths), 9)
+
+    #def test_asia(self):
+        #paths, junctions = p.main('../common/maptiles-spare-pieces/asia/asia.svg')
+        #self.assertEqual(len(junctions), 18)
+        #self.assertEqual(len(paths), 31)
