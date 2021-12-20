@@ -18,6 +18,10 @@ def _verify_segments(list_of_segments):
         assert(x[0][0] == 'M')
         _assert(x[1][0] in ('M','L','C'))
 
+def _debugunless(foo):
+    if not foo:
+        pass
+        import pdb; pdb.set_trace()
 
 def _assert(foo):
     if not foo:
@@ -42,6 +46,8 @@ def _d_cmd_points(d_string):
     """
     command = '\s*([a-zA-Z])\s*'
     num = '(?:[-+]?)\d+(?:\.\d+)?'
+    smallenum = '(?:[-+]?)\d+e-\d+'
+    d_string = re.sub(smallenum, '0', d_string)
     commandmatch = re.match(f"{command}(.*)", d_string)
     _assert(commandmatch)
     command = commandmatch.group(1)
@@ -124,7 +130,7 @@ def find_absolute_path_segments(d_string):
         else:
             moveto = ('M', (last_point,))
 
-        _assert(last_point[1]>10)
+        _assert(last_point[1]>1)
         _assert(start_point is not None)
 
         if command == 'l':
@@ -257,7 +263,8 @@ def cut_paths(segments_by_start_point, junctions):
                 segments_by_start_point.pop(start_point)
         print(len(segments_by_start_point))
         if len(path)>0:
-            _assert(start_point in junctions or is_island)
+            ## should not happen if file is containing only closed loop
+            _debugunless(start_point in junctions or is_island)
             paths.append(path)
         else:
             import pdb; pdb.set_trace()
@@ -542,16 +549,29 @@ def find_segment_points(segments):
     #import pdb; pdb.set_trace()
     ## no - segments may contain near-duplicates or reversed duplicates
     #_assert(sum([len(x) for x in segments_by_start_point.values()]) == len(segments))
-    _assert(not [x for x in segments_by_point if len(segments_by_point[x])<2])
+    ## should not happen if file is containing only closed loop
+    #_debugunless(not [x for x in segments_by_point if len(segments_by_point[x])<2])
 
-    ## debugging
+    cnt1=0
+    cnt2=0
+    cnt3=0
     for x in segments_by_point:
+        ## orphans - non-closed loop starting or ending here
+        if len(segments_by_point[x])==1:
+            junctions.add(x)
+            import pdb; pdb.set_trace()
         if x in junctions:
-            _assert(len(segments_by_point[x])>2)
+            if not len(segments_by_point[x])>2:
+                cnt1 += 1
         else:
-            _assert(len(segments_by_point[x]) in (2,3,4))
-            _assert(len(segments_by_start_point[x]) in (1,2))
-    
+            if not len(segments_by_point[x]) in (2,3,4):
+                cnt2 += 1
+            if not len(segments_by_start_point[x]) in (1,2):
+                cnt3 +=1
+
+    ## should not happen if file is containing only closed loop
+    #_debugunless(cnt1+cnt2+cnt3 == 0)
+
     return(segments_by_start_point, segments_by_point, junctions)
 
 def find_micro_path(paths):
