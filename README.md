@@ -2,6 +2,10 @@
 
 The details here are to be kept wrapped until the 24th of December.  If you read this after the 24th of December, please nag on me to post photos of the finished products as well as additional details and usage instructions.
 
+## Files
+
+Things are a bit messy at the moment ...
+
 ## Scripts
 
 You should not need to care about anything in the script directory, but in case you wonder ...
